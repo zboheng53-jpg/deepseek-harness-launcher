@@ -1,0 +1,18 @@
+# Logs
+logs/
+*.log
+
+# Node & Package Managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS Files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local overrides
+config.local.json

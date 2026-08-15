@@ -1,0 +1,8 @@
+﻿{
+    "projectPath":  "D:\\Projects\\deepseek-harness",
+    "port":  3080,
+    "host":  "127.0.0.1",
+    "command":  "pnpm dsh web",
+    "autoOpenBrowser":  true,
+    "timeoutSeconds":  90
+}

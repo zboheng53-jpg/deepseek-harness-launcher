@@ -1,0 +1,24 @@
+{
+  "name": "deepseek-harness-launcher",
+  "version": "1.0.0",
+  "description": "Native Windows desktop launcher and background daemon for DeepSeek Harness",
+  "author": "DeepSeek Harness Community",
+  "license": "MIT",
+  "scripts": {
+    "install-desktop": "powershell -ExecutionPolicy Bypass -File scripts/install.ps1",
+    "uninstall-desktop": "powershell -ExecutionPolicy Bypass -File scripts/uninstall.ps1",
+    "start": "powershell -ExecutionPolicy Bypass -File scripts/launch.ps1",
+    "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "build:icon": "python scripts/build_icon.py",
+    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify.ps1"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "desktop-launcher",
+    "windows-shortcut",
+    "agent",
+    "llm"
+  ]
+}
