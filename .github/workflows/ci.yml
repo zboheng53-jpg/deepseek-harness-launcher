@@ -14,4 +14,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify launcher package
         shell: powershell
-        run: ./tests/verify.ps1
+        run: ./tests/verify.ps1 -Behavior

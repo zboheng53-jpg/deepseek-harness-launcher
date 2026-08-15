@@ -1,162 +1,112 @@
-# DeepSeek Harness Desktop Launcher 🚀
+# DeepSeek Harness Launcher
 
 <div align="center">
 
-![DeepSeek Harness Logo](assets/app.png)
+![DeepSeek Harness Launcher icon](assets/app.png)
 
-### Native-like Windows Desktop Launcher & Background Daemon for DeepSeek Harness
+### The lightweight native Windows launcher for the DeepSeek Harness Web UI
 
+[![CI](https://github.com/zboheng53-jpg/deepseek-harness-launcher/actions/workflows/ci.yml/badge.svg)](https://github.com/zboheng53-jpg/deepseek-harness-launcher/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6.svg?logo=windows)]()
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-Harness-4D6BFE.svg)]()
-[![No Flash Window](https://img.shields.io/badge/Console-Silent%20%2F%20No%20Popup-success.svg)]()
 
 English | [中文文档](README.zh.md)
 
 </div>
 
----
+> [!IMPORTANT]
+> This is an unofficial community project. It is not affiliated with, maintained by, or endorsed by DeepSeek. DeepSeek names and visual marks belong to their respective owners and are used only to identify compatibility with [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
-## 🌟 Highlights
+DeepSeek Harness Launcher adds a silent desktop shortcut, single-instance startup, health checks, safe process tracking, diagnostics, and predictable version selection without bundling a browser engine or forking Harness.
 
-- 🎯 **Native App Desktop Experience**: Double click the desktop icon to launch DeepSeek Harness Web UI directly — no terminal navigation or manual URL input required.
-- 🛡️ **Smart Single-Instance Daemon**:
-  - **Cold Start**: Starts `dsh web` quietly in the background, health-checks port 3080, and automatically opens your default browser the millisecond it is ready.
-  - **Hot Activation**: If the server is already active, instantly opens or focuses the browser tab without spawning duplicate processes or causing port conflicts.
-- 🪟 **Zero Console Flicker**: Engineered with VBScript + hidden PowerShell dispatching to eliminate ugly terminal black boxes.
-- 🎨 **Pixel-Perfect Official Icon**: Compiled directly from DeepSeek's official whale/dolphin vector SVG into a multi-resolution (16x16 to 256x256) Windows 11 native `.ico` icon.
-- ⚡ **Auto Environment Detection**: Intelligently locates your local clone (`D:\Projects\deepseek-harness`, `pnpm dsh web`) or global `npx @deepseek-ai/dsh web`.
-- 🛑 **Safe One-Click Control**: `stop.bat` terminates only launcher-tracked or positively identified `dsh web` processes; it never kills an unrelated port owner.
-- 🔒 **Cold-Start Race Protection**: Rapid repeated clicks still produce only one server instance.
-- ✅ **CI & Releases**: Windows validation runs on every push and PR; a `v*` tag packages the launcher and creates a GitHub Release.
+## Highlights
 
----
+- Silent native Windows launch through a `.lnk` and VBScript wrapper—no console flash.
+- Reuses a healthy Harness instance and prevents duplicate cold starts with a named mutex.
+- Refuses to treat an unrelated service on port 3080 as Harness.
+- Stops only tracked or positively identified `dsh web` processes and guards against PID reuse.
+- Stores configuration, state, and rotating logs outside the program folder under `%LOCALAPPDATA%\DeepSeekHarnessLauncher`.
+- Uses structured `npm`/`source` configuration; JSON cannot supply an arbitrary shell command.
+- Pins npm mode to an explicitly tested Harness version so a future upstream release cannot silently change an installed launcher.
+- Includes bilingual dialogs, a one-click diagnostic report, Windows CI behavior tests, and SHA-256 release checksums.
 
-## 📦 Directory Structure
+## Install
 
-```text
-deepseek-harness-launcher/
-├── assets/
-│   ├── logo.svg              # DeepSeek official vector logo
-│   ├── app.png               # High-res rendered PNG
-│   ├── app.ico               # Windows native multi-resolution icon (16~256px)
-│   └── icon_render.html      # Icon HTML template
-├── scripts/
-│   ├── build_icon.py         # Icon compiler script
-│   ├── launch.ps1            # Core startup & port polling daemon
-│   ├── launch.vbs            # Silent launcher wrapper
-│   ├── stop.ps1              # Process terminator script
-│   ├── install.ps1           # Desktop shortcut installer
-│   └── uninstall.ps1         # Cleanup & uninstaller
-├── tests/
-│   └── verify.ps1            # Script, config, icon, and installer checks
-├── .github/workflows/        # Windows CI and tag-based releases
-├── config.json               # Launcher configuration (ports/paths/commands)
-├── install.bat               # Double-click one-click installer
-├── stop.bat                  # Double-click to stop background server
-├── uninstall.bat             # Double-click to uninstall desktop shortcut
-├── README.md                 # English documentation
-├── README.zh.md              # Chinese documentation
-├── LICENSE                   # MIT License
-└── package.json              # Project metadata
-```
+Download the ZIP and `SHA256SUMS.txt` from [Releases](https://github.com/zboheng53-jpg/deepseek-harness-launcher/releases), verify the checksum, extract the complete folder, and double-click `install.bat`.
 
----
+The default `npm` mode requires:
 
-## 🚀 Quick Start
+- Windows 10 or 11
+- Windows PowerShell 5.1 or later
+- Node.js `^22.19.0` or `>=24.0.0`
+- `npx` in `PATH`
 
-### 1. Installation
-In the project directory, simply double-click **`install.bat`** or run in PowerShell:
+For a local upstream checkout, run:
 
 ```powershell
-.\install.bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 `
+  -ProjectPath "C:\src\deepseek-harness"
 ```
 
-The installer will:
-1. Detect your local DeepSeek Harness repository or global install.
-2. Place a polished **`DeepSeek Harness`** shortcut on your Windows desktop.
+Source mode also requires `pnpm` and a checkout whose `package.json` defines the `dsh` script.
 
-### 2. Daily Usage
-- **Launch / Open**: Double-click the **DeepSeek Harness** icon on your desktop.
-- **Stop Server**: Double-click **`stop.bat`** to safely terminate the background server.
-- **Uninstall**: Double-click **`uninstall.bat`** to remove the desktop shortcut.
+## Use
 
----
+- Double-click the desktop **DeepSeek Harness** shortcut to launch or reopen the Web UI.
+- Run `stop.bat` to stop the server managed by this launcher.
+- Run `diagnose.bat` to create `%TEMP%\deepseek-harness-launcher-diagnostics.txt`.
+- Run `uninstall.bat` to remove the shortcut and stop the server. Configuration and logs are preserved.
 
-## ⚙️ Configuration (`config.json`)
+## Configuration
 
-You can customize launcher settings in `config.json`:
+The tracked [config.default.json](config.default.json) is a template. Installation creates the user-owned file at:
+
+```text
+%LOCALAPPDATA%\DeepSeekHarnessLauncher\config.json
+```
 
 ```json
 {
-  "projectPath": "D:\\Projects\\deepseek-harness",
+  "schemaVersion": 1,
+  "mode": "npm",
+  "projectPath": "",
+  "packageVersion": "0.1.0-rc.5",
+  "extraArgs": [],
   "port": 3080,
   "host": "127.0.0.1",
-  "command": "pnpm dsh web",
   "autoOpenBrowser": true,
   "timeoutSeconds": 90
 }
 ```
 
-| Parameter | Default | Description |
-| :--- | :--- | :--- |
-| `projectPath` | Auto-detected | Absolute path to deepseek-harness project |
-| `port` | `3080` | Web UI listening port |
-| `host` | `127.0.0.1` | Local bind address |
-| `command` | `pnpm dsh web` | Startup command |
-| `autoOpenBrowser` | `true` | Automatically open default browser when ready |
-| `timeoutSeconds` | `90` | Maximum cold-start timeout before an alert |
+| Setting | Meaning |
+| --- | --- |
+| `mode` | `npm` runs the exact `packageVersion`; `source` runs `pnpm dsh web` in `projectPath`. |
+| `projectPath` | Required only for a local DeepSeek Harness checkout in `source` mode. |
+| `packageVersion` | Exact npm package version; the public default matches `compatibility.json`. |
+| `extraArgs` | Additional argument strings passed directly to `dsh web`, without shell evaluation. |
+| `host` / `port` | Address used for health checks and browser opening. If Harness is configured to listen elsewhere, keep these values in sync. |
+| `autoOpenBrowser` | Opens the default browser after a verified health check. |
+| `timeoutSeconds` | Startup deadline from 1 to 900 seconds. |
 
-Runtime logs and tracked-process state are stored under `logs/` (Git-ignored). The launcher verifies the returned page title before treating a listening port as DeepSeek Harness.
+Legacy repository-local `config.json` is migrated during installation. Runtime data is never written to the extracted program directory.
 
----
+## Compatibility policy
 
-## 🔍 How It Works
+[compatibility.json](compatibility.json) records the last Harness version tested by this launcher. DeepSeek Harness describes itself as a developer preview with compatibility-breaking changes, so npm mode uses that exact version rather than `latest`. Updating it requires behavior verification and a launcher release.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as User
-    participant Shortcut as Desktop Shortcut (.lnk)
-    participant VBS as launch.vbs (Silent Proxy)
-    participant Daemon as launch.ps1 (Daemon)
-    participant Server as DeepSeek Harness (Port 3080)
-    participant Browser as Default Browser
+| Launcher | Tested Harness | Node.js |
+| --- | --- | --- |
+| `0.1.x` | `0.1.0-rc.5` | `^22.19.0` or `>=24.0.0` |
 
-    User->>Shortcut: Double Click Icon
-    Shortcut->>VBS: Invoke (WindowStyle=0)
-    VBS->>Daemon: Execute launch script (No black box)
-    
-    rect rgb(240, 248, 255)
-        Daemon->>Daemon: Test port 127.0.0.1:3080
-        alt Port Open (Already running)
-            Daemon->>Browser: Open http://127.0.0.1:3080
-        else Port Closed (Cold start)
-            Daemon->>Server: Spawn pnpm dsh web in background
-            loop Poll the page every 250ms (Up to 90s)
-                Daemon->>Server: HTTP page and title health check
-            end
-            Server-->>Daemon: Page identified as DeepSeek Harness
-            Daemon->>Browser: Open http://127.0.0.1:3080
-        end
-    end
-```
-
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
-
-## ✅ Local Verification
+## Verify and contribute
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify.ps1 -Behavior
 ```
 
-To include an installer/shortcut smoke test:
+The suite validates package integrity and exercises cold start, hot activation, port conflicts, safe stop, and timeout cleanup against a fake local server. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify.ps1 `
-  -InstallerSmoke -HarnessProjectPath "D:\Projects\deepseek-harness"
-```
+## License
+
+Launcher code is available under the [MIT License](LICENSE). This license does not grant rights to third-party names or logos.

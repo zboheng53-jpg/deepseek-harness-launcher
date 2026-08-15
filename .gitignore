@@ -1,5 +1,6 @@
-# Logs
+# Legacy repository-local runtime data (v0.1 and earlier)
 logs/
+config.json
 *.log
 
 # Node & Package Managers
@@ -16,3 +17,4 @@ Desktop.ini
 
 # Local overrides
 config.local.json
+.test-tmp/

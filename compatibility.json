@@ -1,0 +1,8 @@
+{
+  "testedDshVersion": "0.1.0-rc.5",
+  "node": {
+    "description": "^22.19.0 || >=24.0.0",
+    "minimum22": "22.19.0",
+    "minimum24": "24.0.0"
+  }
+}

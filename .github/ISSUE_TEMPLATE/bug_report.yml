@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a Windows launcher installation, startup, shutdown, or diagnostic problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Before posting, run `diagnose.bat` and remove user names, paths, API keys, or other secrets from its output.
+  - type: input
+    id: version
+    attributes:
+      label: Launcher version
+      placeholder: v0.1.0-beta or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows and PowerShell versions
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Launch mode
+      options: [npm, source]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Explain what you did, what happened, and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials and personal information from logs and diagnostics.
+          required: true

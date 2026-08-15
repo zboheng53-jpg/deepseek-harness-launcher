@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "mode": "npm",
+  "projectPath": "",
+  "packageVersion": "0.1.0-rc.5",
+  "extraArgs": [],
+  "port": 3080,
+  "host": "127.0.0.1",
+  "autoOpenBrowser": true,
+  "timeoutSeconds": 90
+}

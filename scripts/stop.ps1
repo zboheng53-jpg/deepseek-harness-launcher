@@ -1,12 +1,15 @@
 ﻿# DeepSeek Harness Desktop Launcher - safely stop a tracked DSH server
 param(
     [string]$ConfigPath = "",
+    [string]$DataPath = "",
     [switch]$Quiet
 )
 
 $LauncherRoot = Split-Path -Parent $PSScriptRoot
-$ConfigFile = if ($ConfigPath) { $ConfigPath } else { Join-Path $LauncherRoot "config.json" }
-$StateFile = Join-Path $LauncherRoot "logs\server-state.json"
+. (Join-Path $PSScriptRoot "common.ps1")
+$DataDirectory = Get-LauncherDataDirectory -DataPath $DataPath
+$ConfigFile = if ($ConfigPath) { $ConfigPath } else { Join-Path $DataDirectory "config.json" }
+$StateFile = Join-Path $DataDirectory "server-state.json"
 $port = 3080
 $projectPath = ""
 
@@ -66,6 +69,7 @@ function Get-ProcessTreeIds {
 $stopped = New-Object System.Collections.Generic.List[int]
 $skippedUnrelatedListener = $false
 $trackedIds = @()
+$trackedRootProcessId = 0
 $earliestStartUtc = [DateTime]::MinValue
 
 if (Test-Path -LiteralPath $StateFile) {
@@ -79,6 +83,7 @@ if (Test-Path -LiteralPath $StateFile) {
             ForEach-Object { [int]$_ } |
             Select-Object -Unique
         if ($state.rootProcessId -and [int]$state.rootProcessId -gt 0) {
+            $trackedRootProcessId = [int]$state.rootProcessId
             $liveTreeIds = @(Get-ProcessTreeIds -RootProcessId ([int]$state.rootProcessId))
             $trackedIds = @($trackedIds) + @($liveTreeIds) | Select-Object -Unique
         }
@@ -86,6 +91,19 @@ if (Test-Path -LiteralPath $StateFile) {
     catch {
         $trackedIds = @()
     }
+}
+
+# Prefer Windows' native tree termination after validating the tracked root's
+# start time. This remains safe against PID reuse and works when WMI/CIM cannot
+# enumerate child processes in a restricted session.
+if ($trackedRootProcessId -gt 0 -and (Test-ProcessNotReused -ProcessId $trackedRootProcessId -EarliestStartUtc $earliestStartUtc)) {
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    & taskkill.exe /PID $trackedRootProcessId /T /F *> $null
+    $taskkillExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousPreference
+    if ($taskkillExitCode -eq 0) { $stopped.Add($trackedRootProcessId) }
+    Start-Sleep -Milliseconds 150
 }
 
 # Stop only PIDs recorded by this launcher, and reject PID reuse by start time.
@@ -105,8 +123,7 @@ Start-Sleep -Milliseconds 250
 
 # Recover safely when the state file is absent: only stop a listener whose command
 # line positively identifies it as `dsh web`. Never kill an arbitrary port owner.
-$listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue |
-    Select-Object -ExpandProperty OwningProcess -Unique)
+$listeners = @(Get-ListenerProcessIds -Port $port)
 foreach ($listenerId in $listeners) {
     if ($listenerId -le 0 -or $stopped.Contains([int]$listenerId)) { continue }
     $info = Get-CimInstance Win32_Process -Filter "ProcessId = $listenerId" -ErrorAction SilentlyContinue
@@ -129,18 +146,18 @@ if (Test-Path -LiteralPath $StateFile) {
 if (-not $Quiet) {
     Add-Type -AssemblyName System.Windows.Forms
     if ($stopped.Count -gt 0) {
-        $message = "DeepSeek Harness 后台服务已停止。`n`n已终止进程：$($stopped -join ', ')"
-        $title = "服务已停止"
+        $message = Get-LauncherText "Stopped" @(($stopped -join ", "))
+        $title = Get-LauncherText "StoppedTitle"
         $icon = [System.Windows.Forms.MessageBoxIcon]::Information
     }
     elseif ($skippedUnrelatedListener) {
-        $message = "端口 $port 正在使用，但占用者无法识别为 DeepSeek Harness。为避免误杀进程，启动器没有终止它。"
-        $title = "未停止其他服务"
+        $message = Get-LauncherText "NotStopped" @($port)
+        $title = Get-LauncherText "NotStoppedTitle"
         $icon = [System.Windows.Forms.MessageBoxIcon]::Warning
     }
     else {
-        $message = "未检测到由此启动器管理的 DeepSeek Harness 服务。"
-        $title = "服务未运行"
+        $message = Get-LauncherText "NotRunning"
+        $title = Get-LauncherText "NotRunningTitle"
         $icon = [System.Windows.Forms.MessageBoxIcon]::Information
     }
     [System.Windows.Forms.MessageBox]::Show(

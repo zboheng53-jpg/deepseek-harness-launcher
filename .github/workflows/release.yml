@@ -15,17 +15,30 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify launcher package
         shell: powershell
-        run: ./tests/verify.ps1
-      - name: Build release archive
+        run: ./tests/verify.ps1 -Behavior
+      - name: Build release archive and checksum
         shell: powershell
         run: |
+          $name = "deepseek-harness-launcher-${{ github.ref_name }}"
+          $stage = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
           $items = @(
-            "assets", "scripts", "config.json", "install.bat", "stop.bat",
-            "uninstall.bat", "README.md", "README.zh.md", "LICENSE", "package.json"
+            "assets", "scripts", "config.default.json", "compatibility.json",
+            "install.bat", "stop.bat", "uninstall.bat", "diagnose.bat",
+            "README.md", "README.zh.md", "CONTRIBUTING.md", "SECURITY.md",
+            "LICENSE", "package.json"
           )
-          Compress-Archive -Path $items -DestinationPath "deepseek-harness-launcher-${{ github.ref_name }}.zip"
+          Copy-Item -Path $items -Destination $stage -Recurse
+          $archive = "$name.zip"
+          Compress-Archive -Path $stage -DestinationPath $archive
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -LiteralPath SHA256SUMS.txt -Encoding ascii
       - name: Create GitHub release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" "deepseek-harness-launcher-${{ github.ref_name }}.zip" --generate-notes --verify-tag
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "deepseek-harness-launcher-${{ github.ref_name }}.zip" `
+            "SHA256SUMS.txt" `
+            --generate-notes --verify-tag

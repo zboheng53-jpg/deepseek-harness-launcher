@@ -1,71 +1,95 @@
-﻿# DeepSeek Harness Desktop Launcher - silent single-instance dispatcher
+﻿# DeepSeek Harness Launcher - silent single-instance dispatcher
 param(
     [string]$CustomUrl = "",
     [string]$ConfigPath = "",
+    [string]$DataPath = "",
     [switch]$NoBrowser,
     [switch]$NoDialog
 )
 
 $ErrorActionPreference = "Stop"
 $LauncherRoot = Split-Path -Parent $PSScriptRoot
-$ConfigFile = if ($ConfigPath) { $ConfigPath } else { Join-Path $LauncherRoot "config.json" }
-$LogsDir = Join-Path $LauncherRoot "logs"
-$LogFile = Join-Path $LogsDir "launcher.log"
-$ServerLogFile = Join-Path $LogsDir "server.log"
-$StateFile = Join-Path $LogsDir "server-state.json"
+. (Join-Path $PSScriptRoot "common.ps1")
+
+$DataDirectory = Get-LauncherDataDirectory -DataPath $DataPath
+New-Item -ItemType Directory -Path $DataDirectory -Force | Out-Null
+$LogFile = Join-Path $DataDirectory "launcher.log"
+$ServerLogFile = Join-Path $DataDirectory "server.log"
+$StateFile = Join-Path $DataDirectory "server-state.json"
+$DescriptorFile = Join-Path $DataDirectory "server-launch.json"
+$RunnerScript = Join-Path $PSScriptRoot "run-server.ps1"
 $script:OwnsMutex = $false
 $script:LaunchMutex = $null
 
-New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
+$logSha = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $logMutexHash = ([BitConverter]::ToString($logSha.ComputeHash([Text.Encoding]::UTF8.GetBytes($DataDirectory.ToLowerInvariant())))).Replace("-", "")
+}
+finally { $logSha.Dispose() }
+$LogMutexName = "Local\DeepSeekHarnessLauncher-Log-$($logMutexHash.Substring(0, 24))"
+
+function Invoke-WithLogLock {
+    param([scriptblock]$Action)
+    $mutex = New-Object System.Threading.Mutex($false, $LogMutexName)
+    $ownsMutex = $false
+    try {
+        try { $ownsMutex = $mutex.WaitOne(5000, $false) }
+        catch [System.Threading.AbandonedMutexException] { $ownsMutex = $true }
+        if (-not $ownsMutex) { throw "Timed out waiting for the launcher log lock." }
+        & $Action
+    }
+    finally {
+        if ($ownsMutex) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
 
 function Write-Log {
     param([string]$Message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -LiteralPath $LogFile -Value "[$timestamp] $Message" -Encoding utf8
+    $entry = "[$timestamp] $Message"
+    Invoke-WithLogLock { Add-Content -LiteralPath $LogFile -Value $entry -Encoding utf8 }
 }
+
+Invoke-WithLogLock { Invoke-LogRotation -Path $LogFile }
 
 function Show-LauncherMessage {
     param(
         [string]$Message,
         [string]$Title = "DeepSeek Harness",
-        [ValidateSet("Information", "Warning", "Error")]
-        [string]$Icon = "Information"
+        [ValidateSet("Information", "Warning", "Error")][string]$Icon = "Information"
     )
     if ($NoDialog) {
         Write-Log "$Title`: $Message"
         return
     }
     Add-Type -AssemblyName System.Windows.Forms
-    $iconValue = [System.Windows.Forms.MessageBoxIcon]::$Icon
     [System.Windows.Forms.MessageBox]::Show(
         $Message,
         $Title,
         [System.Windows.Forms.MessageBoxButtons]::OK,
-        $iconValue
+        [System.Windows.Forms.MessageBoxIcon]::$Icon
     ) | Out-Null
 }
 
+function Stop-WithConfigurationError {
+    param([string]$Message)
+    Write-Log $Message
+    Show-LauncherMessage -Title (Get-LauncherText "ConfigErrorTitle") -Icon Error -Message $Message
+    exit 3
+}
+
 function Test-PortOpen {
-    param(
-        [string]$TargetHost,
-        [int]$TargetPort,
-        [int]$TimeoutMs = 300
-    )
+    param([string]$TargetHost, [int]$TargetPort, [int]$TimeoutMs = 300)
     $client = New-Object System.Net.Sockets.TcpClient
     try {
         $pending = $client.BeginConnect($TargetHost, $TargetPort, $null, $null)
-        if (-not $pending.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
-            return $false
-        }
+        if (-not $pending.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) { return $false }
         $client.EndConnect($pending)
         return $client.Connected
     }
-    catch {
-        return $false
-    }
-    finally {
-        $client.Close()
-    }
+    catch { return $false }
+    finally { $client.Close() }
 }
 
 function Test-HarnessReady {
@@ -75,16 +99,12 @@ function Test-HarnessReady {
         return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400 -and
             $response.Content -match '(?is)<title>\s*DeepSeek Harness(?:\s*</title>|\s*—)')
     }
-    catch {
-        return $false
-    }
+    catch { return $false }
 }
 
 function Open-HarnessBrowser {
     param([string]$Url)
-    if (-not $NoBrowser) {
-        Start-Process $Url
-    }
+    if (-not $NoBrowser) { Start-Process $Url }
 }
 
 function Get-ProcessTreeIds {
@@ -105,10 +125,19 @@ function Get-ProcessTreeIds {
 }
 
 function Stop-StartedProcessTree {
-    param(
-        [int]$RootProcessId,
-        [DateTime]$EarliestStartUtc
-    )
+    param([int]$RootProcessId, [DateTime]$EarliestStartUtc)
+    try {
+        $rootProcess = Get-Process -Id $RootProcessId -ErrorAction Stop
+        if ($rootProcess.StartTime.ToUniversalTime() -ge $EarliestStartUtc) {
+            $previousPreference = $ErrorActionPreference
+            $ErrorActionPreference = "SilentlyContinue"
+            & taskkill.exe /PID $RootProcessId /T /F *> $null
+            $taskkillExitCode = $LASTEXITCODE
+            $ErrorActionPreference = $previousPreference
+            if ($taskkillExitCode -eq 0) { return }
+        }
+    }
+    catch {}
     $treeIds = @(Get-ProcessTreeIds -RootProcessId $RootProcessId)
     [Array]::Reverse($treeIds)
     foreach ($processId in $treeIds) {
@@ -128,12 +157,13 @@ function Save-ServerState {
         [string]$StartedAtUtc,
         [string]$ProjectPath,
         [string]$Url,
-        [int]$Port
+        [int]$Port,
+        [string]$Mode,
+        [string]$PackageVersion
     )
     $treeIds = @(Get-ProcessTreeIds -RootProcessId $RootProcessId)
-    $listenerIds = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty OwningProcess -Unique)
-    $state = [ordered]@{
+    $listenerIds = @(Get-ListenerProcessIds -Port $Port)
+    [ordered]@{
         rootProcessId = $RootProcessId
         processIds = @($treeIds)
         listenerProcessIds = @($listenerIds)
@@ -141,55 +171,50 @@ function Save-ServerState {
         projectPath = $ProjectPath
         url = $Url
         port = $Port
-    }
-    $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $StateFile -Encoding utf8
+        mode = $Mode
+        packageVersion = $PackageVersion
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $StateFile -Encoding utf8
 }
 
-# Read configuration.
-$hostAddr = "127.0.0.1"
-$port = 3080
-$projectPath = ""
-$command = "pnpm dsh web"
-$autoOpen = $true
-$timeoutSeconds = 90
-
-if (Test-Path -LiteralPath $ConfigFile) {
-    try {
-        $json = Get-Content -LiteralPath $ConfigFile -Raw -Encoding utf8 | ConvertFrom-Json
-        if ($json.host) { $hostAddr = [string]$json.host }
-        if ($json.port) { $port = [int]$json.port }
-        if ($json.projectPath) { $projectPath = [string]$json.projectPath }
-        if ($json.command) { $command = [string]$json.command }
-        if ($null -ne $json.autoOpenBrowser) { $autoOpen = [bool]$json.autoOpenBrowser }
-        if ($json.timeoutSeconds) { $timeoutSeconds = [int]$json.timeoutSeconds }
-    }
-    catch {
-        Write-Log "Failed to parse config file '$ConfigFile': $_"
-        Show-LauncherMessage -Title "配置错误" -Icon Error -Message "无法读取启动器配置。`n`n$ConfigFile`n`n详情请查看：$LogFile"
-        exit 3
-    }
+try {
+    $ConfigFile = Initialize-LauncherConfig -LauncherRoot $LauncherRoot -DataDirectory $DataDirectory -ConfigPath $ConfigPath
+    $json = Get-Content -LiteralPath $ConfigFile -Raw -Encoding utf8 | ConvertFrom-Json
 }
-
-if ($port -lt 1 -or $port -gt 65535) {
-    Show-LauncherMessage -Title "配置错误" -Icon Error -Message "端口必须在 1 到 65535 之间；当前值为 $port。"
+catch {
+    Write-Log "Failed to initialize or parse configuration: $_"
+    $pathForMessage = if ($ConfigPath) { $ConfigPath } else { Join-Path $DataDirectory "config.json" }
+    Show-LauncherMessage -Title (Get-LauncherText "ConfigErrorTitle") -Icon Error -Message (
+        Get-LauncherText "ConfigReadError" @($pathForMessage, $LogFile)
+    )
     exit 3
 }
 
-if (-not $projectPath -or -not (Test-Path -LiteralPath $projectPath -PathType Container)) {
-    $candidates = @(
-        "D:\Projects\deepseek-harness",
-        (Join-Path (Split-Path -Parent $LauncherRoot) "deepseek-harness"),
-        (Join-Path $env:USERPROFILE "Projects\deepseek-harness"),
-        (Join-Path $env:USERPROFILE "deepseek-harness")
-    )
-    $projectPath = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
+$mode = if ($json.mode) { ([string]$json.mode).ToLowerInvariant() } else { "npm" }
+$hostAddr = if ($json.host) { [string]$json.host } else { "127.0.0.1" }
+$port = if ($json.port) { [int]$json.port } else { 3080 }
+$projectPath = if ($json.projectPath) { [string]$json.projectPath } else { "" }
+$packageVersion = if ($json.packageVersion) { [string]$json.packageVersion } else { "" }
+$extraArgs = @($json.extraArgs | ForEach-Object { [string]$_ })
+$autoOpen = if ($null -ne $json.autoOpenBrowser) { [bool]$json.autoOpenBrowser } else { $true }
+$timeoutSeconds = if ($json.timeoutSeconds) { [int]$json.timeoutSeconds } else { 90 }
+
+if ($mode -notin @("npm", "source")) { Stop-WithConfigurationError (Get-LauncherText "InvalidMode" @($mode)) }
+if ($port -lt 1 -or $port -gt 65535) { Stop-WithConfigurationError (Get-LauncherText "InvalidPort" @($port)) }
+if ($timeoutSeconds -lt 1 -or $timeoutSeconds -gt 900) { Stop-WithConfigurationError "timeoutSeconds must be between 1 and 900." }
+if ($mode -eq "npm" -and $packageVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+    Stop-WithConfigurationError "packageVersion must be an exact semantic version."
+}
+foreach ($argument in $extraArgs) {
+    if ($argument.IndexOfAny(@([char]13, [char]10, [char]0)) -ge 0) {
+        Stop-WithConfigurationError "extraArgs entries cannot contain line breaks or null characters."
+    }
 }
 
 $targetUrl = if ($CustomUrl) { $CustomUrl } else { "http://$($hostAddr):$($port)" }
 $shouldOpen = $autoOpen -and -not $NoBrowser
-Write-Log "Checking $targetUrl (project: '$projectPath')."
+Write-Log "Checking $targetUrl (mode: $mode; config: '$ConfigFile')."
 
-# Reuse a healthy DSH instance, but never mistake an unrelated service for DSH.
+# Opening an existing healthy server does not require Node.js or package tools.
 if (Test-HarnessReady -Url $targetUrl) {
     Write-Log "DeepSeek Harness is already ready."
     if ($shouldOpen) { Open-HarnessBrowser -Url $targetUrl }
@@ -197,27 +222,50 @@ if (Test-HarnessReady -Url $targetUrl) {
 }
 if (Test-PortOpen -TargetHost $hostAddr -TargetPort $port) {
     Write-Log "Port $port is occupied by a non-DSH or unhealthy service."
-    Show-LauncherMessage -Title "端口冲突" -Icon Error -Message "端口 $port 已被其他服务占用，且该服务不是可识别的 DeepSeek Harness。`n`n请释放端口或修改 config.json。"
+    Show-LauncherMessage -Title (Get-LauncherText "PortConflictTitle") -Icon Error -Message (Get-LauncherText "PortConflict" @($port))
     exit 2
 }
 
-# A named mutex closes the race between two cold-start double-clicks.
-$mutexSeed = "$LauncherRoot|$hostAddr|$port".ToLowerInvariant()
-$sha = [System.Security.Cryptography.SHA256]::Create()
-try {
-    $mutexHash = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($mutexSeed)))).Replace("-", "")
+$node = Get-NodeCompatibility
+if (-not $node.Found) { Stop-WithConfigurationError (Get-LauncherText "NodeMissing") }
+if (-not $node.Supported) {
+    $displayVersion = if ($node.Version) { $node.Version.ToString() } else { "unknown" }
+    Stop-WithConfigurationError (Get-LauncherText "NodeUnsupported" @($displayVersion))
 }
-finally {
-    $sha.Dispose()
-}
-$script:LaunchMutex = New-Object System.Threading.Mutex($false, "Local\DeepSeekHarnessLauncher-$($mutexHash.Substring(0, 24))")
-try {
+
+if ($mode -eq "source") {
+    if (-not $projectPath -or -not (Test-Path -LiteralPath $projectPath -PathType Container)) {
+        Stop-WithConfigurationError (Get-LauncherText "SourcePathMissing")
+    }
+    $packageFile = Join-Path $projectPath "package.json"
     try {
-        $script:OwnsMutex = $script:LaunchMutex.WaitOne(0, $false)
+        $sourcePackage = Get-Content -LiteralPath $packageFile -Raw -Encoding utf8 | ConvertFrom-Json
+        if (-not $sourcePackage.scripts.dsh) { throw "package.json does not define scripts.dsh" }
     }
-    catch [System.Threading.AbandonedMutexException] {
-        $script:OwnsMutex = $true
-    }
+    catch { Stop-WithConfigurationError "projectPath is not a valid DeepSeek Harness checkout: $_" }
+    $commandInfo = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
+    if (-not $commandInfo) { $commandInfo = Get-Command pnpm -ErrorAction SilentlyContinue }
+    if (-not $commandInfo) { Stop-WithConfigurationError (Get-LauncherText "ToolMissing" @("pnpm", "source")) }
+    $serverArguments = @("dsh", "web") + $extraArgs
+    $workingDirectory = (Resolve-Path -LiteralPath $projectPath).Path
+}
+else {
+    $commandInfo = Get-Command npx.cmd -ErrorAction SilentlyContinue
+    if (-not $commandInfo) { $commandInfo = Get-Command npx -ErrorAction SilentlyContinue }
+    if (-not $commandInfo) { Stop-WithConfigurationError (Get-LauncherText "ToolMissing" @("npx", "npm")) }
+    $serverArguments = @("-y", "@deepseek-ai/dsh@$packageVersion", "web") + $extraArgs
+    $workingDirectory = $LauncherRoot
+}
+
+$mutexSeed = "$DataDirectory|$hostAddr|$port".ToLowerInvariant()
+$sha = [System.Security.Cryptography.SHA256]::Create()
+try { $mutexHash = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($mutexSeed)))).Replace("-", "") }
+finally { $sha.Dispose() }
+$script:LaunchMutex = New-Object System.Threading.Mutex($false, "Local\DeepSeekHarnessLauncher-$($mutexHash.Substring(0, 24))")
+
+try {
+    try { $script:OwnsMutex = $script:LaunchMutex.WaitOne(0, $false) }
+    catch [System.Threading.AbandonedMutexException] { $script:OwnsMutex = $true }
 
     if (-not $script:OwnsMutex) {
         Write-Log "Another launcher instance is starting the server; waiting for readiness."
@@ -230,47 +278,47 @@ try {
             }
             Start-Sleep -Milliseconds 250
         }
-        Show-LauncherMessage -Title "启动超时" -Icon Warning -Message "另一启动任务未能在 ${timeoutSeconds} 秒内启动 DeepSeek Harness。`n`n请查看：$LogFile"
+        Show-LauncherMessage -Title (Get-LauncherText "StartupTimeoutTitle") -Icon Warning -Message (
+            Get-LauncherText "StartupTimeoutOther" @($timeoutSeconds, $LogFile)
+        )
         exit 1
     }
 
-    # Recheck after acquiring the mutex because another process may have won the race.
     if (Test-HarnessReady -Url $targetUrl) {
         if ($shouldOpen) { Open-HarnessBrowser -Url $targetUrl }
         exit 0
     }
     if (Test-PortOpen -TargetHost $hostAddr -TargetPort $port) {
-        Show-LauncherMessage -Title "端口冲突" -Icon Error -Message "端口 $port 已被其他服务占用。请释放端口或修改 config.json。"
+        Show-LauncherMessage -Title (Get-LauncherText "PortConflictTitle") -Icon Error -Message (Get-LauncherText "PortConflict" @($port))
         exit 2
     }
 
-    if ($projectPath) {
-        $startScript = "cd /d `"$projectPath`" && $command 1>>`"$ServerLogFile`" 2>&1"
-        $workingDirectory = $projectPath
-    }
-    else {
-        $startScript = "npx -y @deepseek-ai/dsh web 1>>`"$ServerLogFile`" 2>&1"
-        $workingDirectory = $LauncherRoot
-    }
+    Invoke-LogRotation -Path $ServerLogFile
+    [ordered]@{
+        executable = $commandInfo.Source
+        arguments = @($serverArguments)
+        workingDirectory = $workingDirectory
+        logFile = $ServerLogFile
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $DescriptorFile -Encoding utf8
 
-    Write-Log "Starting DeepSeek Harness in '$workingDirectory'."
+    Write-Log "Starting DeepSeek Harness in '$workingDirectory' with structured $mode mode."
     $startedAtUtc = [DateTime]::UtcNow.ToString("o")
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $env:ComSpec
-    $psi.Arguments = "/d /c $startScript"
+    $psi.FileName = Join-Path $PSHOME "powershell.exe"
+    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$RunnerScript`" -DescriptorPath `"$DescriptorFile`""
     $psi.WorkingDirectory = $workingDirectory
     $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $psi.CreateNoWindow = $true
     $psi.UseShellExecute = $false
     $serverProcess = [System.Diagnostics.Process]::Start($psi)
     Write-Log "Dispatched server process PID $($serverProcess.Id)."
-    Save-ServerState -RootProcessId $serverProcess.Id -StartedAtUtc $startedAtUtc -ProjectPath $projectPath -Url $targetUrl -Port $port
+    Save-ServerState -RootProcessId $serverProcess.Id -StartedAtUtc $startedAtUtc -ProjectPath $projectPath -Url $targetUrl -Port $port -Mode $mode -PackageVersion $packageVersion
 
     $startTime = Get-Date
     while (((Get-Date) - $startTime).TotalSeconds -lt $timeoutSeconds) {
         if (Test-HarnessReady -Url $targetUrl) {
             $elapsed = [Math]::Round(((Get-Date) - $startTime).TotalSeconds, 1)
-            Save-ServerState -RootProcessId $serverProcess.Id -StartedAtUtc $startedAtUtc -ProjectPath $projectPath -Url $targetUrl -Port $port
+            Save-ServerState -RootProcessId $serverProcess.Id -StartedAtUtc $startedAtUtc -ProjectPath $projectPath -Url $targetUrl -Port $port -Mode $mode -PackageVersion $packageVersion
             Write-Log "Server ready in ${elapsed}s."
             if ($shouldOpen) { Open-HarnessBrowser -Url $targetUrl }
             exit 0
@@ -284,22 +332,18 @@ try {
 
     Write-Log "Server failed to become ready within ${timeoutSeconds}s; stopping the incomplete process tree."
     Stop-StartedProcessTree -RootProcessId $serverProcess.Id -EarliestStartUtc ([DateTime]::Parse($startedAtUtc).ToUniversalTime().AddSeconds(-5))
-    if (Test-Path -LiteralPath $StateFile) {
-        Remove-Item -LiteralPath $StateFile -Force -ErrorAction SilentlyContinue
-    }
-    Show-LauncherMessage -Title "启动失败" -Icon Warning -Message "DeepSeek Harness 未能在 ${timeoutSeconds} 秒内就绪。`n`n请查看服务器日志：`n$ServerLogFile"
+    if (Test-Path -LiteralPath $StateFile) { Remove-Item -LiteralPath $StateFile -Force -ErrorAction SilentlyContinue }
+    Show-LauncherMessage -Title (Get-LauncherText "StartupFailedTitle") -Icon Warning -Message (
+        Get-LauncherText "StartupFailed" @($timeoutSeconds, $ServerLogFile)
+    )
     exit 1
 }
 catch {
     Write-Log "Unexpected launcher error: $_"
-    Show-LauncherMessage -Title "启动器错误" -Icon Error -Message "启动 DeepSeek Harness 时发生错误。`n`n详情请查看：$LogFile"
+    Show-LauncherMessage -Title (Get-LauncherText "LauncherErrorTitle") -Icon Error -Message (Get-LauncherText "LauncherError" @($LogFile))
     exit 1
 }
 finally {
-    if ($script:OwnsMutex -and $script:LaunchMutex) {
-        $script:LaunchMutex.ReleaseMutex()
-    }
-    if ($script:LaunchMutex) {
-        $script:LaunchMutex.Dispose()
-    }
+    if ($script:OwnsMutex -and $script:LaunchMutex) { $script:LaunchMutex.ReleaseMutex() }
+    if ($script:LaunchMutex) { $script:LaunchMutex.Dispose() }
 }
