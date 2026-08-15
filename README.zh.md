@@ -1,174 +1,112 @@
-# DeepSeek Harness Desktop Launcher 🚀
+# DeepSeek Harness Launcher
 
 <div align="center">
 
-![DeepSeek Harness Logo](assets/app.png)
+![DeepSeek Harness Launcher 图标](assets/app.png)
 
-### 为 DeepSeek Harness 打造的原生级 Windows 桌面一键启动器与后台守护程序
+### 面向 DeepSeek Harness Web UI 的轻量原生 Windows 启动器
 
+[![CI](https://github.com/zboheng53-jpg/deepseek-harness-launcher/actions/workflows/ci.yml/badge.svg)](https://github.com/zboheng53-jpg/deepseek-harness-launcher/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6.svg?logo=windows)]()
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-Harness-4D6BFE.svg)]()
-[![No Flash Window](https://img.shields.io/badge/Console-Silent%20%2F%20No%20Popup-success.svg)]()
 
 [English](README.md) | 中文文档
 
 </div>
 
----
+> [!IMPORTANT]
+> 本项目是非官方社区项目，与 DeepSeek 不存在隶属、维护或背书关系。DeepSeek 名称和视觉标识的权利归各自权利人所有，此处仅用于说明与 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的兼容性。
 
-## 🌟 核心特性
+它不引入 Electron/Tauri，不 fork Harness，只为 Windows 增加静默桌面启动、单实例、健康检查、安全进程跟踪、诊断和可预测的版本选择。
 
-- 🎯 **原生软件般的桌面体验**：一键双击桌面图标，直接唤起 DeepSeek Harness Web 页面，告别繁琐的终端命令和手动输入网址。
-- 🛡️ **智能单实例守护**：
-  - **未运行**：后台静默启动 `dsh web`，毫秒级轮询 3080 端口，服务就绪后秒开默认浏览器。
-  - **已在运行**：直接激活浏览器页面，绝不产生重复进程或端口冲突。
-- 🪟 **彻底消除命令行黑框**：采用 VBScript + 隐藏式 PowerShell 守护，启动全程无任何黑框弹窗或闪烁。
-- 🎨 **官方原生矢量图标**：基于 DeepSeek 官方经典蓝白海豚/鲸鱼 Logo，多分辨率（16x16 ~ 256x256）编译生成高清 Windows 11 原生 `.ico` 桌面图标。
-- ⚡ **环境自适应探测**：自动识别本地 Git 源码仓库（`D:\Projects\deepseek-harness`、`pnpm dsh web`）或全局 `npx @deepseek-ai/dsh web`。
-- 🛑 **安全的一键启停**：`stop.bat` 只终止启动器记录或可明确识别为 `dsh web` 的进程；端口被其他程序占用时不会误杀。
-- 🔒 **并发冷启动保护**：快速连续双击也只会启动一个服务实例。
-- ✅ **自动验证与发布**：内置 Windows CI；推送 `v*` 标签即可生成 ZIP 并创建 GitHub Release。
+## 核心特性
 
----
+- 通过桌面快捷方式和 VBScript 静默启动，不闪现控制台窗口。
+- 已有健康实例时直接复用；命名 mutex 防止连续双击产生重复服务。
+- 3080 端口若被其他程序占用会明确报错，不会误认为 Harness。
+- 只停止已跟踪或可明确识别的 `dsh web` 进程，并防范 PID 复用。
+- 配置、状态和轮转日志统一保存在 `%LOCALAPPDATA%\DeepSeekHarnessLauncher`，与程序文件分离。
+- 只支持结构化的 `npm` / `source` 模式，JSON 配置不能注入任意 Shell 命令。
+- npm 模式固定到明确验证过的 Harness 版本，上游更新不会在用户不知情时改变实际程序。
+- 提供中英文界面、一键诊断、Windows 行为测试及 Release SHA-256 校验和。
 
-## 📦 项目结构
+## 安装
 
-```text
-deepseek-harness-launcher/
-├── assets/
-│   ├── logo.svg              # DeepSeek 官方矢量 Logo
-│   ├── app.png               # 高清渲染 PNG 图标
-│   ├── app.ico               # Windows 原生多分辨率图标 (16~256px)
-│   └── icon_render.html      # 图标渲染模版
-├── scripts/
-│   ├── build_icon.py         # 图标编译生成工具
-│   ├── launch.ps1            # 核心启动守护逻辑（端口探测、浏览器分发）
-│   ├── launch.vbs            # 静默启动封装（消除黑框）
-│   ├── stop.ps1              # 一键停止后台服务
-│   ├── install.ps1           # 桌面快捷方式安装向导
-│   └── uninstall.ps1         # 卸载清理脚本
-├── tests/
-│   └── verify.ps1            # 脚本、配置、图标与安装器验证
-├── .github/workflows/        # Windows CI 与标签发布工作流
-├── config.json               # 启动器配置文件（端口/路径/命令）
-├── install.bat               # 双击一键安装
-├── stop.bat                  # 双击一键停止后台服务
-├── uninstall.bat             # 双击一键卸载快捷方式
-├── README.md                 # 英文说明文档
-├── README.zh.md              # 中文说明文档
-├── LICENSE                   # MIT 许可证
-└── package.json              # 项目元数据
-```
+从 [Releases](https://github.com/zboheng53-jpg/deepseek-harness-launcher/releases) 下载 ZIP 和 `SHA256SUMS.txt`，校验哈希后完整解压，再双击 `install.bat`。
 
----
+默认 `npm` 模式要求：
 
-## 🚀 快速开始
+- Windows 10 或 11
+- Windows PowerShell 5.1 或更高版本
+- Node.js `^22.19.0` 或 `>=24.0.0`
+- `PATH` 中存在 `npx`
 
-### 1. 一键安装
-在项目根目录中，直接双击运行 **`install.bat`**，或在 PowerShell 中执行：
+如需使用本地上游源码仓库，可执行：
 
 ```powershell
-.\install.bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 `
+  -ProjectPath "C:\src\deepseek-harness"
 ```
 
-安装程序将自动：
-1. 探测你的 DeepSeek Harness 本地项目路径；
-2. 在 Windows 桌面上生成带官方图标的 **`DeepSeek Harness`** 快捷方式。
+`source` 模式还要求安装 `pnpm`，且目标 `package.json` 定义了 `dsh` 脚本。
 
-### 2. 日常使用
-- **启动/打开**：双击桌面上的 **DeepSeek Harness** 图标。
-- **停止服务**：如果需要完全退出后台常驻服务，双击运行项目目录下的 **`stop.bat`**。
-- **卸载清理**：双击运行 **`uninstall.bat`** 即可移除桌面图标。
+## 使用
 
----
+- 双击桌面 **DeepSeek Harness** 图标启动或重新打开 Web UI。
+- 运行 `stop.bat` 安全停止此启动器管理的服务。
+- 运行 `diagnose.bat` 生成 `%TEMP%\deepseek-harness-launcher-diagnostics.txt`。
+- 运行 `uninstall.bat` 删除快捷方式并停止服务；用户配置和日志会保留。
 
-## ⚙️ 进阶配置 (`config.json`)
+## 配置
 
-你可以通过编辑根目录下的 `config.json` 来自定义启动行为：
+仓库中的 [config.default.json](config.default.json) 只是模板。安装后真正使用的配置位于：
+
+```text
+%LOCALAPPDATA%\DeepSeekHarnessLauncher\config.json
+```
 
 ```json
 {
-  "projectPath": "D:\\Projects\\deepseek-harness",
+  "schemaVersion": 1,
+  "mode": "npm",
+  "projectPath": "",
+  "packageVersion": "0.1.0-rc.5",
+  "extraArgs": [],
   "port": 3080,
   "host": "127.0.0.1",
-  "command": "pnpm dsh web",
   "autoOpenBrowser": true,
   "timeoutSeconds": 90
 }
 ```
 
-| 参数 | 默认值 | 说明 |
-| :--- | :--- | :--- |
-| `projectPath` | 自动探测 | DeepSeek Harness 源码目录绝对路径 |
-| `port` | `3080` | Web UI 监听端口 |
-| `host` | `127.0.0.1` | 绑定地址 |
-| `command` | `pnpm dsh web` | 启动命令（如 `pnpm dsh web --port 3080`） |
-| `autoOpenBrowser` | `true` | 服务就绪后是否自动在默认浏览器中打开 |
-| `timeoutSeconds` | `90` | 等待服务就绪的最长超时时间（秒） |
+| 配置项 | 含义 |
+| --- | --- |
+| `mode` | `npm` 启动指定的精确包版本；`source` 在 `projectPath` 中执行 `pnpm dsh web`。 |
+| `projectPath` | 仅 `source` 模式需要，必须指向本地 DeepSeek Harness 源码仓库。 |
+| `packageVersion` | npm 精确版本；公开默认值必须与 `compatibility.json` 一致。 |
+| `extraArgs` | 直接作为参数传给 `dsh web`，不会交给 Shell 求值。 |
+| `host` / `port` | 健康检查和浏览器打开地址；如果通过参数更改 Harness 监听地址，需要同步修改。 |
+| `autoOpenBrowser` | 服务通过身份健康检查后自动打开默认浏览器。 |
+| `timeoutSeconds` | 1–900 秒的冷启动超时时间。 |
 
-运行时日志和进程状态保存在项目的 `logs/` 目录中（该目录已被 Git 忽略）。启动器会检查网页标题，确认端口上的服务确实是 DeepSeek Harness 后才打开浏览器。
+安装器会迁移旧版本放在仓库根目录的 `config.json`。新版运行时不会向解压目录写入用户状态。
 
----
+## 兼容策略
 
-## 🔍 工作原理
+[compatibility.json](compatibility.json) 记录启动器最后验证的 Harness 版本。上游明确处于 developer preview，并可能发生破坏性变更，因此 npm 模式默认使用精确版本而不是 `latest`。更新该版本必须重新执行行为测试并发布新的启动器版本。
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as 用户
-    participant Shortcut as 桌面快捷方式 (.lnk)
-    participant VBS as launch.vbs (静默代理)
-    participant Daemon as launch.ps1 (守护进程)
-    participant Server as DeepSeek Harness (Port 3080)
-    participant Browser as 默认网页浏览器
+| 启动器 | 已验证 Harness | Node.js |
+| --- | --- | --- |
+| `0.1.x` | `0.1.0-rc.5` | `^22.19.0` 或 `>=24.0.0` |
 
-    User->>Shortcut: 双击图标
-    Shortcut->>VBS: 隐式唤起 (WindowStyle=0)
-    VBS->>Daemon: 启动守护脚本 (无黑框)
-    
-    rect rgb(240, 248, 255)
-        Daemon->>Daemon: 探测 127.0.0.1:3080 端口状态
-        alt 端口已开放 (服务已在运行)
-            Daemon->>Browser: 激活打开 http://127.0.0.1:3080
-        else 端口未开放 (冷启动)
-            Daemon->>Server: 后台静默启动 pnpm dsh web
-            loop 每 250ms 探测一次页面 (最长 90s)
-                Daemon->>Server: HTTP 页面与标题健康检查
-            end
-            Server-->>Daemon: 页面返回并识别为 DeepSeek Harness
-            Daemon->>Browser: 自动打开 http://127.0.0.1:3080
-        end
-    end
-```
-
----
-
-## 🛠️ 自定义图标编译
-
-如果你想调整图标或重新生成不同尺寸的 `.ico`：
+## 验证与贡献
 
 ```powershell
-python scripts/build_icon.py
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify.ps1 -Behavior
 ```
 
-该工具利用系统内置的 Edge/Chrome 无头渲染引擎将 `assets/icon_render.html` 渲染为高清透明 PNG，并通过 Pillow 库编译为同时包含 16px、24px、32px、48px、64px、128px、256px 尺寸的 Windows 标准 `.ico` 图标。
+测试既检查发行包完整性，也会使用假本地服务覆盖冷启动、热激活、端口冲突、安全停止和超时清理。参与贡献或报告安全问题前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [SECURITY.md](SECURITY.md)。
 
-## ✅ 本地验证
+## 许可证
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify.ps1
-```
-
-如需连同桌面快捷方式安装器一起做冒烟测试：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/verify.ps1 `
-  -InstallerSmoke -HarnessProjectPath "D:\Projects\deepseek-harness"
-```
-
----
-
-## 📄 开源许可证
-
-本项目基于 [MIT License](LICENSE) 开源。欢迎 Star、Fork 与提交 Issue/PR！
+启动器代码使用 [MIT License](LICENSE)。该许可证不授予任何第三方名称或 Logo 的使用权。
