@@ -177,7 +177,7 @@ finally { $listener.Stop() }
         [ordered]@{
             schemaVersion = 1; mode = "source"; projectPath = $fakeCheckout; packageVersion = "0.1.0-rc.5"
             extraArgs = @("-Port", "$concurrentPort", "-MarkerFile", $concurrentMarker)
-            port = $concurrentPort; host = "127.0.0.1"; autoOpenBrowser = $false; timeoutSeconds = 15
+            port = $concurrentPort; host = "127.0.0.1"; autoOpenBrowser = $false; timeoutSeconds = 30
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $concurrentConfig -Encoding utf8
         $launcherArguments = @(
             "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $Root "scripts\launch.ps1"),

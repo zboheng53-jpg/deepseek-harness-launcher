@@ -21,13 +21,37 @@ $RunnerScript = Join-Path $PSScriptRoot "run-server.ps1"
 $script:OwnsMutex = $false
 $script:LaunchMutex = $null
 
-Invoke-LogRotation -Path $LogFile
+$logSha = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $logMutexHash = ([BitConverter]::ToString($logSha.ComputeHash([Text.Encoding]::UTF8.GetBytes($DataDirectory.ToLowerInvariant())))).Replace("-", "")
+}
+finally { $logSha.Dispose() }
+$LogMutexName = "Local\DeepSeekHarnessLauncher-Log-$($logMutexHash.Substring(0, 24))"
+
+function Invoke-WithLogLock {
+    param([scriptblock]$Action)
+    $mutex = New-Object System.Threading.Mutex($false, $LogMutexName)
+    $ownsMutex = $false
+    try {
+        try { $ownsMutex = $mutex.WaitOne(5000, $false) }
+        catch [System.Threading.AbandonedMutexException] { $ownsMutex = $true }
+        if (-not $ownsMutex) { throw "Timed out waiting for the launcher log lock." }
+        & $Action
+    }
+    finally {
+        if ($ownsMutex) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
 
 function Write-Log {
     param([string]$Message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -LiteralPath $LogFile -Value "[$timestamp] $Message" -Encoding utf8
+    $entry = "[$timestamp] $Message"
+    Invoke-WithLogLock { Add-Content -LiteralPath $LogFile -Value $entry -Encoding utf8 }
 }
+
+Invoke-WithLogLock { Invoke-LogRotation -Path $LogFile }
 
 function Show-LauncherMessage {
     param(
