@@ -266,3 +266,4 @@ finally { $listener.Stop() }
 }
 
 Write-Host "Verification passed ($iconCount icon sizes$(if ($Behavior) { ', behavior tests' } else { '' }))." -ForegroundColor Green
+exit 0
