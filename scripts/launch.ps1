@@ -250,11 +250,17 @@ if ($mode -eq "source") {
     $workingDirectory = (Resolve-Path -LiteralPath $projectPath).Path
 }
 else {
-    $commandInfo = Get-Command npx.cmd -ErrorAction SilentlyContinue
-    if (-not $commandInfo) { $commandInfo = Get-Command npx -ErrorAction SilentlyContinue }
-    if (-not $commandInfo) { Stop-WithConfigurationError (Get-LauncherText "ToolMissing" @("npx", "npm")) }
-    $serverArguments = @("-y", "@deepseek-ai/dsh@$packageVersion", "web") + $extraArgs
-    $workingDirectory = $LauncherRoot
+    # Use the locally installed DeepSeek Harness profile directly instead of
+    # pulling the package over the network via npx (which is slow and can fail
+    # with ETARGET / timeouts on some registries).
+    $commandInfo = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $commandInfo) { Stop-WithConfigurationError (Get-LauncherText "ToolMissing" @("node", "npm")) }
+    $localBin = Join-Path $HOME ".dsh\profiles\node_modules\@deepseek-ai\dsh\lib\bin.js"
+    if (-not (Test-Path -LiteralPath $localBin)) {
+        Stop-WithConfigurationError "Local DeepSeek Harness install not found at '$localBin'. Reinstall the dsh profile first."
+    }
+    $serverArguments = @($localBin, "web") + $extraArgs
+    $workingDirectory = Join-Path $HOME ".dsh\profiles"
 }
 
 $mutexSeed = "$DataDirectory|$hostAddr|$port".ToLowerInvariant()
